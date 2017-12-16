@@ -13,7 +13,7 @@ def get_data(filename, bound=(start_time_poimt, start_time_poimt + signal_len)):
     def extract_timescale(t):
         return str((float(t) - float(starttime)) / tonanosec)
 
-    series = [[extract_timescale(row[1])] + row[2:3] for row in rows]
+    series = [[extract_timescale(row[1])] + row[2:5] for row in rows]
     out = filter(lambda x: bound[0] < float(x[0]) < bound[1], series)
     out = [map(float, x) for x in out]
     firsttime = out[0][0]
@@ -37,11 +37,11 @@ def prepare(folder, file):
     #bounds = [(0.3, 1.45), (1.45, 2.56), (2.56, 3.69), (3.69, 4.9), (4.9, 5.95), (5.95, 7.1), (7.1, 8.42), (8.42, 9.63), (9.63, 10.88)]
     bounds = [(0, 100)]
     outfolder = "output"
-    os.mkdir(outfolder)
-    map(lambda x: dump_csv(os.path.join(outfolder, 'export_' + str(x)), get_data(filename, bound=x)), bounds)
+    if not os.path.exists(outfolder):
+        os.mkdir(outfolder)
+    map(lambda x: dump_csv(os.path.join(outfolder, file + '_export_' + str(x)), get_data(filename, bound=x)), bounds)
 
 if __name__ == "__main__":
     import sys
-    #files = ["Accelerometer_export.txt", "Gyroscope_export.txt"]#, "Linear Acceleration_export.txt"]
-    files = ["Accelerometer_export.txt"]
+    files = ["Accelerometer_export.txt", "Gyroscope_export.txt"]
     map(lambda x: prepare('ira', x), files)
