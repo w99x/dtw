@@ -2,24 +2,18 @@ import numpy as np
 import matplotlib.pyplot as plt
 import re
 
-ira_merged=np.array(map(lambda l: map(float,filter(lambda x: len(x)>0,re.split('\\s+',l))),open('ira/merged.csv'))).T
+ira_merged=np.array(map(lambda l: map(float,filter(lambda x: len(x)>0,re.split('\\s+',l))),open('iracsv/merged.csv'))).T
 merged_data=np.array(map(lambda l: map(float, filter(lambda x: len(x) > 0, re.split('\\s+', l))), open('merged.csv'))).T
 
 merged_timet = merged_data[0, :]
-merged_datat = merged_data[1, :]
-
-def interpolate(tx, sig):
-    from scipy import interpolate
-    t = map(lambda x: x * 0.01, range(0, int(100 * round(tx[-1] - tx[0], 2))))
-    spline = interpolate.splrep(tx, sig, s=0)
-    return t, interpolate.splev(t, spline, der=0)
+merged_datat = merged_data[1:, :]
 
 newdatat, newdatas = merged_timet, merged_datat#interpolate(timet, datat)
 
 #newdatas /= np.max(newdatas)
 
 dk = 11
-offset= 480
+offset = 480
 pattern_t = np.copy(newdatat[offset:offset + dk])
 pattern = np.copy(newdatas[offset:offset + dk])
 pattern_t -= pattern_t[0]
@@ -27,6 +21,10 @@ pattern_t -= pattern_t[0]
 #plt.figure()
 #plt.plot(pattern_t, pattern)
 #plt.grid()
+
+
+ira_merged[0, :] += np.max(merged_timet)
+newdatat, newdatas = np.concatenate((merged_timet, ira_merged[0, :])), np.concatenate((merged_datat, ira_merged[1:, :]))
 
 newpatt, newpats = pattern_t, pattern #interpolate(pattern_t, pattern)
 
