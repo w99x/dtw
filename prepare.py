@@ -35,7 +35,7 @@ def prepare(folder, file):
     filename = os.path.join(folder, file)
 
     #bounds = [(0.3, 1.45), (1.45, 2.56), (2.56, 3.69), (3.69, 4.9), (4.9, 5.95), (5.95, 7.1), (7.1, 8.42), (8.42, 9.63), (9.63, 10.88)]
-    bounds = [(0, 100)]
+    bounds = [(0, 100500)]
     outfolder = "output"
     if not os.path.exists(outfolder):
         os.mkdir(outfolder)
@@ -44,4 +44,4 @@ def prepare(folder, file):
 if __name__ == "__main__":
     import sys
     files = ["Accelerometer_export.txt", "Gyroscope_export.txt"]
-    map(lambda x: prepare('ira', x), files)
+    map(lambda x: prepare('stasloop', x), files)

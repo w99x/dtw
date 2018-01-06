@@ -16,7 +16,8 @@ def read_csv(filename, ticks_per_sec=1000000000, col_start=0, cols_size=4):
     with open(filename, 'rb') as f:
         reader = csv.reader(f, delimiter=' ', lineterminator='\n')
         list_csv = list(reader)
-        return map(lambda x: [int(ticks_per_sec * float(x[col_start]))] + map(float, x[col_start + 1:col_start + cols_size]), list_csv)
+        starttime = float(list_csv[col_start][0])
+        return map(lambda x: [int(ticks_per_sec * (float(x[col_start]) - starttime))] + map(float, x[col_start + 1:col_start + cols_size]), list_csv)
 
 def merge_list_pair(merge_to, merge_from):
     if merge_to is None:
@@ -48,8 +49,8 @@ def merge_files_content(files, folder, ticks_per_sec=1000000000, col_start=0, co
     return merge_lists(interpolated)
 
 
-folder = "iracsv"
-signal_files2 = ['Accelerometer_export.csv', 'Gyroscope_export.csv',]
+folder = "stasloopcsv"
+signal_files2 = ['Accelerometer_export2.csv', 'Gyroscope_export2.csv']
 merged_list2 = merge_files_content(signal_files2, folder)
 
 import numpy
