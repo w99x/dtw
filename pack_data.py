@@ -49,8 +49,8 @@ def merge_files_content(files, folder, ticks_per_sec=1000000000, col_start=0, co
     return merge_lists(interpolated)
 
 
-folder = "stasloopcsv"
-signal_files2 = ['Accelerometer_export2.csv', 'Gyroscope_export2.csv']
+folder = "maxcsv1"
+signal_files2 = ['Accelerometer_export.csv', 'Gyroscope_export.csv']
 merged_list2 = merge_files_content(signal_files2, folder)
 
 import numpy
@@ -58,22 +58,43 @@ np_merged = numpy.matrix(merged_list2)
 numpy.divide(np_merged[:, 0], 1000000000.0, np_merged[:, 0])
 numpy.savetxt(os.path.join(folder, 'merged.csv'), np_merged, fmt='%.10f')
 
-def get_chars(np_marray, sample_rate=10):
-    np_array = numpy.array(np_marray.T)[0]
-    w = numpy.fft.fft(np_array)
-    freqs = numpy.fft.fftfreq(len(w))
-    idx = numpy.argmax(numpy.abs(w))
-    freq = freqs[idx]
-    freq_in_herz = abs(freq * sample_rate)
-    correlate = numpy.correlate(np_array, np_array, mode='full')
-    return numpy.mean(np_array), freq_in_herz, numpy.std(np_array), numpy.median(np_array), correlate[len(correlate)/2:]
+def get_chars(np_marray):
+    from scipy.signal import argrelextrema
+    import numpy as np
 
-merged_chars = [get_chars(np_merged[:, i+1]) for i in range(1)]
+    minimumsidx = argrelextrema(np_marray, np.less)
+    maximumsidx = argrelextrema(np_marray, np.greater)
+
+    def get_vals_by_idx(idxs):
+        return [np_marray[x] for x in idxs]
+
+    minimums = get_vals_by_idx(minimumsidx[0])
+    maximums = get_vals_by_idx(maximumsidx[0])
+
+    minmax = np.max(minimums)
+    minmin = np.min(minimums)
+
+    maxmin = np.min(maximums)
+    maxmax = np.max(maximums)
+
+    maxmax -= minmin
+    maxmin -= minmin
+
+    minmin -= maxmax
+    minmax -= maxmax
+
+    maxratio = maxmax / maxmin
+    minratio = minmin / minmax
+    mean = np.mean(np_marray)
+    return [maxratio, minratio, mean]
+
+
+merged_chars = [get_chars(np_merged[:, i+1]) for i in range(np_merged.shape[1] - 1)]
 from pprint import pprint
-pprint(merged_chars[0][:])
-import matplotlib.pyplot as plt
+pprint(merged_chars)
 
 def draw_graphs():
+    import matplotlib.pyplot as plt
     def draw_array(x, y):
         plt.figure()
         plt.plot(x, y)
@@ -84,7 +105,6 @@ def draw_graphs():
     signals_size = len(signal_files2) * 3
     for i in range(signals_size):
         draw_array(np_merged[:, 0], np_merged[:, i+1])
-    draw_array(np_merged[:, 0], merged_chars[0][-1])
     plt.show()
 
 draw_graphs()
