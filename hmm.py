@@ -33,21 +33,20 @@ def get_chars(np_marray):
 
     minimums = get_vals_by_idx(minimumsidx[0])
     maximums = get_vals_by_idx(maximumsidx[0])
-    if len(maximums) == 0 or len(minimums) == 0:
-        return None
-
-    minmax = np.max(minimums)
-    minmin = np.min(minimums)
-
-    maxmin = np.min(maximums)
-    maxmax = np.max(maximums)
-
-    maxmax -= minmin
-    maxmin -= minmin
-    minmin -= maxmax
-    minmax -= maxmax
-    maxratio = maxmax / maxmin
-    minratio = minmin / minmax
+    #if len(maximums) == 0 or len(minimums) == 0:
+    #    return None
+    #minmax = np.max(minimums)
+    #minmin = np.min(minimums)
+    #
+    #maxmin = np.min(maximums)
+    #maxmax = np.max(maximums)
+    #
+    #maxmax -= minmin
+    #maxmin -= minmin
+    #minmin -= maxmax
+    #minmax -= maxmax
+    #maxratio = maxmax / maxmin
+    #minratio = minmin / minmax
 
 
     std = np.std(np_marray)
@@ -100,7 +99,7 @@ def get_dtw_in_window(window, patterns, window_deviation=0.0):
         #dist_mins = argrelextrema(np.array([x[0] for x in distances_in_window]), np.less)[0]
         dist_min = np.argmin(np.array([x[0] for x in distances_in_window]))
         distances.extend([tuple(x) for x in np.array(distances_in_window)[np.r_[dist_min]]])
-    return distances
+    return np.array(distances)
 
 
 def draw_signals(filteredt, datat, datas, name=""):
@@ -144,52 +143,88 @@ def filter_extr(distances, window_t, window_s):
     founds_pos = []
 
     dtw_mins = argrelextrema(np.array([x[0] for x in distances]), np.less)[0]
-    for dtw_min in zip(dtw_mins[:-1], dtw_mins[1:]):
-        dist_val = distances[dtw_min[0]][0]
-        signal_len = int(distances[dtw_min[0]][1])
-        idx = int(distances[dtw_min[0]][2])
+    def filter_by_chars(signal, mindistances):
+        filtered_dist = []
 
+        for dist in mindistances:
+            signal_len = int(dist[1])
+            signal_start = int(dist[2])
+            signal_candidate = signal[:, signal_start:signal_start + signal_len]
 
-        dist_val_next = distances[dtw_min[1]][0]
-        idx_next = int(distances[dtw_min[1]][2])
-        signal_len_next = int(distances[dtw_min[1]][1])
-
-        if idx + signal_len > idx_next:
-            if (idx_next + signal_len_next < idx + signal_len) or (idx + signal_len - idx_next > int(0.5 * signal_len)):
-                if dist_val_next < dist_val:
-                    idx = idx_next
-                    signal_len = signal_len_next
+            sig_chars = [get_chars(s) for s in signal_candidate]
+            if all(sig_chars):
+                sig_chars_map = dict(zip(significant_coords, sig_chars))
             else:
-                signal_len -= idx + signal_len - idx_next
+                continue
+            
+            coeff = 1.2
+            positive = 0
+            for k in sig_chars_map.keys():
+                if abs(sig_chars_map[k][0] * coeff) >= abs(fh_loop_character_filter_map[k][0]):
+                    positive += 1
+                    # if abs(sig_chars_map[k][1] * coeff) >= abs(fh_loop_character_filter_map[k][1]):
+                    #    positive += 1
+            
+            if positive >= len(sig_chars_map):
+                filtered_dist.append(dist)
+        return filtered_dist
+
+    def remove_cross(ranges):
+
+        ranges_local = ranges
+        crossed = True
+        filtered_indexes = []
+
+        while crossed:
+            crossed = False
+            filtered_indexes = []
+            zipped = list(zip(ranges_local[:-1], ranges_local[1:])) + [(ranges_local[-1], ranges_local[-1])]
+            skip_next = False
+            for range_pair in zipped:
+                if skip_next:
+                    skip_next = False
+                    continue
+                dist_val, signal_len, idx = range_pair[0]
+                signal_len = int(signal_len)
+                idx = int(idx)
+
+                dist_val_next, signal_len_next, idx_next = range_pair[1]
+                signal_len_next = int(signal_len_next)
+                idx_next = int(idx_next)
+
+                if idx + signal_len > idx_next:
+                    if (idx_next + signal_len_next <= idx + signal_len) or (
+                                idx + signal_len - idx_next > int(0.5 * signal_len) + 1):
+                        if dist_val_next < dist_val:
+                            continue
+                        else:
+                            skip_next = True
+                    else:
+                        crossed = True
+                        signal_len -= idx + signal_len - idx_next
 
 
-        time = window_t[idx]
-        signal = window_s[:, idx:idx + signal_len]
+                filtered_indexes.append((dist_val, signal_len, idx))
+            print(filtered_indexes)
+            ranges_local = filtered_indexes
 
-        sig_chars = [get_chars(s) for s in signal]
-        if all(sig_chars):
-            sig_chars_map = dict(zip(significant_coords, sig_chars))
-        else:
-            continue
+        print("LAST")
+        print(filtered_indexes)
+        return filtered_indexes
 
-        coeff = 1.2
-        positive = 0
-        for k in sig_chars_map.keys():
-            if abs(sig_chars_map[k][0]*coeff) >= abs(fh_loop_character_filter_map[k][0]):
-                positive += 1
-                #if abs(sig_chars_map[k][1] * coeff) >= abs(fh_loop_character_filter_map[k][1]):
-                #    positive += 1
-
-        if positive >= len(sig_chars_map):
-            founds_pos.append((time, signal_len))
+    min_dists = distances[np.r_[dtw_mins]]
+    distances_by_chars = filter_by_chars(window_s, min_dists)
+    result = remove_cross(distances_by_chars)
+    result = filter_by_chars(window_s, result)
+    founds_pos = [(window_t[dist[2]], int(dist[1])) for dist in result]
     return founds_pos
 
 draw_patterns(pattern_t, pattern, "max")
 #draw_patterns(pattern_stas_t, pattern_stas)
 
-newdatat, newdatas = read_and_prepare(['merged_42_44.csv',
+newdatat, newdatas = read_and_prepare(['merged.csv',
                                        #'iracsv/merged.csv',
-                                       #'stasdrivecsv/merged.csv',
+                                       'stasdrivecsv/merged.csv',
                                        #'stasloopcsv/merged.csv'
                                        ])
 
