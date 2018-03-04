@@ -2,21 +2,24 @@ import numpy as np
 import matplotlib.pyplot as plt
 import re
 from scipy.signal import argrelextrema
+from scipy.spatial.distance import euclidean
+from fastdtw import fastdtw
 
 def read_and_prepare(filenames):
     data_arrays = []
     maxtime = 0
     for filename in filenames:
-        data_array = np.array(map(lambda l: map(float, filter(lambda x: len(x) > 0, re.split('\\s+', l))), open(filename))).T
+        data_array = np.array(list(map(lambda l: list(map(float, list(filter(lambda x: len(x) > 0, re.split('\\s+', l))))), open(filename)))).T
         data_array[0, :] += maxtime
         maxtime = np.max(data_array[0, :])
         data_arrays.append(data_array)
     concated = np.concatenate(data_arrays, axis=1)
     return concated[0,:], concated[1:,:]
 
+
 def get_pattern(patternfilename):
     pattern_data = np.array(
-        map(lambda l: map(float, filter(lambda x: len(x) > 0, re.split('\\s+', l))), open(patternfilename))).T
+        list(map(lambda l: list(map(float, list(filter(lambda x: len(x) > 0, re.split('\\s+', l))))), open(patternfilename)))).T
     pattern_t, pattern = pattern_data[0, :], pattern_data[1:, :]
     pattern_t -= pattern_t[0]
     return pattern_t, pattern
@@ -52,6 +55,12 @@ def get_chars(np_marray):
 
     return [std, var]
 
+def interpolate_list(xlist, ylist, xnew):
+    from scipy import interpolate
+    tck = interpolate.splrep(xlist, ylist, s=0)
+    ynew = interpolate.splev(xnew, tck, der=0)
+    return [xnew, ynew.tolist()]
+
 
 def filter_extr_plain_draw(distances, values, threshold=0.8):
     extr = argrelextrema(np.array(distances), np.less)
@@ -64,36 +73,102 @@ def filter_extr_plain_draw(distances, values, threshold=0.8):
             if (values[extrspos[i + 1]] - last >= threshold):
                 filtered[-1][-1] = values[extrvals[i+1]]
                 filtered.append([values[extrvals[i+1]], None])
-        return reduce(lambda res, x: res + x, filtered, [])
+        from functools import reduce
+        return list(reduce(lambda res, x: res + x, filtered, []))
 
     return filter_extr_plain(extrvals, values)
 
-from scipy.spatial.distance import euclidean
-from fastdtw import fastdtw
-
-def get_dtw_in_window(window, patterns):
+def get_dtw_in_window(window, patterns, window_deviation=0.0):
     pattern_len = len(patterns[0])
     windows_len = len(window[0])
     distances = []
-    for i in range(windows_len - pattern_len - 1):
-        datawin = window[:, i:pattern_len + i]
-        distance, path = fastdtw(patterns, datawin, dist=euclidean)
-        print(distance, path)
-        distances.append(distance)
+
+    sample_deviation = int(pattern_len*window_deviation)
+    for i in range(windows_len - int(pattern_len * (1 + window_deviation)) - 1):
+        distances_in_window = []
+        for d in range(-sample_deviation, sample_deviation+1):
+            window_size = pattern_len - d
+            datawin = window[:, i:window_size + i][0]
+
+            told = [x/window_size for x in range(window_size)]
+            tnew = [x/pattern_len for x in range(pattern_len)]
+            datawin_resampled = interpolate_list(told,datawin, tnew)[1]
+
+            distance, path = fastdtw(patterns[0], datawin)
+            distances_in_window.append((distance, window_size, i))
+
+        #dist_mins = argrelextrema(np.array([x[0] for x in distances_in_window]), np.less)[0]
+        dist_min = np.argmin(np.array([x[0] for x in distances_in_window]))
+        distances.extend([tuple(x) for x in np.array(distances_in_window)[np.r_[dist_min]]])
     return distances
 
-def filter_extr(distances, window_t, window_s, signal_len):
+
+def draw_signals(filteredt, datat, datas, name=""):
+    minmaxdist = [[-50, 100]] * len(filteredt)
+
+    plt.figure("signal_" + name)
+    from functools import reduce
+    newdatasarr = list(reduce(lambda res, x: res + [datat, x], datas, []))
+    plt.plot(*newdatasarr)
+    for i in range(len(filteredt)):
+        plt.plot([filteredt[i][0], filteredt[i][0]], minmaxdist[i], '-r')
+        plt.plot([filteredt[i][0] + 0.1*filteredt[i][1], filteredt[i][0] + 0.1*filteredt[i][1]], minmaxdist[i], '--g',linewidth=2)
+
+    plt.grid()
+
+def draw_patterns(time, sig, name=""):
+    for pat in sig:
+        plt.figure("pattern_" + name)
+        plt.plot(time, pat)
+        plt.grid()
+
+
+fh_loop_character_filter_map_hardcoded = {
+        0:[3.5, 1.5], #x
+        1:[3.5, 1.3], #y
+        4:[1.5, 2], #y
+        5:[9, 1.2] #z
+    }
+
+significant_coords = [0]
+
+pattern_t, pattern = get_pattern("pattern.csv")
+pattern = pattern[np.r_[significant_coords]]
+
+#pattern_stas_t, pattern_stas = get_pattern("pattern_stas.csv")
+#pattern_stas = pattern_stas[np.r_[significant_coords]]
+
+fh_loop_character_filter_map = dict(zip(significant_coords, [get_chars(p) for p in pattern]))
+
+def filter_extr(distances, window_t, window_s):
     founds_pos = []
 
-    dtw_mins = argrelextrema(np.array(distances), np.less)[0]
-    for dtw_min in dtw_mins:
-        time = window_t[dtw_min]
-        signal = window_s[:, dtw_min:dtw_min + signal_len]
+    dtw_mins = argrelextrema(np.array([x[0] for x in distances]), np.less)[0]
+    for dtw_min in zip(dtw_mins[:-1], dtw_mins[1:]):
+        dist_val = distances[dtw_min[0]][0]
+        signal_len = int(distances[dtw_min[0]][1])
+        idx = int(distances[dtw_min[0]][2])
+
+
+        dist_val_next = distances[dtw_min[1]][0]
+        idx_next = int(distances[dtw_min[1]][2])
+        signal_len_next = int(distances[dtw_min[1]][1])
+
+        if idx + signal_len > idx_next:
+            if (idx_next + signal_len_next < idx + signal_len) or (idx + signal_len - idx_next > int(0.5 * signal_len)):
+                if dist_val_next < dist_val:
+                    idx = idx_next
+                    signal_len = signal_len_next
+            else:
+                signal_len -= idx + signal_len - idx_next
+
+
+        time = window_t[idx]
+        signal = window_s[:, idx:idx + signal_len]
 
         sig_chars = [get_chars(s) for s in signal]
-
         if all(sig_chars):
-            sig_chars_map = dict(zip(fh_loop_character_filter_map.keys(), sig_chars))
+            sig_chars_map = dict(zip(significant_coords, sig_chars))
         else:
             continue
 
@@ -106,66 +181,26 @@ def filter_extr(distances, window_t, window_s, signal_len):
                 #    positive += 1
 
         if positive >= len(sig_chars_map):
-            founds_pos.append(time)
+            founds_pos.append((time, signal_len))
     return founds_pos
 
-def draw_signals(filteredt, datat, datas, signal_size=10):
-    minmaxdist = [[-50, 100]] * len(filteredt)
-
-    plt.figure()
-    plt.plot(range(len(distances)), distances)
-    plt.grid()
-
-    plt.figure()
-    newdatasarr = reduce(lambda res, x: res + [datat, x], datas, [])
-    plt.plot(*newdatasarr)
-    for i in range(len(filteredt)):
-        plt.plot([filteredt[i], filteredt[i]], minmaxdist[i], '-r')
-        plt.plot([filteredt[i] + 0.1*signal_size, filteredt[i] + 0.1*signal_size], minmaxdist[i], '-g')
-
-    plt.grid()
-
-def draw_patterns(time, sig):
-    for pat in sig:
-        plt.figure()
-        plt.plot(time, pat)
-        plt.grid()
-
-fh_loop_character_filter_map = {
-        0:[3.5, 1.5], #x
-        #1:[3.5, 1.3], #y
-        #4:[1.5, 2], #y
-        #5:[9, 1.2] #z
-    }
-
-significant_coords = fh_loop_character_filter_map.keys()
-
-pattern_t, pattern = get_pattern("pattern.csv")
-pattern = pattern[np.r_[significant_coords]]
-
-#pattern_stas_t, pattern_stas = get_pattern("pattern_stas.csv")
-#pattern_stas = pattern_stas[np.r_[significant_coords]]
-
-fh_loop_character_filter_map = dict(zip(significant_coords, [get_chars(p) for p in pattern]))
-
-draw_patterns(pattern_t, pattern)
+draw_patterns(pattern_t, pattern, "max")
 #draw_patterns(pattern_stas_t, pattern_stas)
 
-newdatat, newdatas = read_and_prepare([#'merged.csv',
+newdatat, newdatas = read_and_prepare(['merged_42_44.csv',
                                        #'iracsv/merged.csv',
                                        #'stasdrivecsv/merged.csv',
-                                       'stasloopcsv/merged.csv'
+                                       #'stasloopcsv/merged.csv'
                                        ])
 
 newdatas = newdatas[np.r_[significant_coords]]
 
-distances = get_dtw_in_window(newdatas, pattern)
-#filteredt = filter_extr_plain_draw(distances, newdatat)
-filteredt = filter_extr(distances, newdatat, newdatas, len(pattern_t))
-draw_signals(filteredt, newdatat, newdatas, signal_size=len(pattern_t))
+distances = get_dtw_in_window(newdatas, pattern, window_deviation=0.0)
+plt.figure("distances")
+plt.plot(range(len(distances)), [x[0] for x in distances])
+plt.grid()
 
-dtw_mins = argrelextrema(np.array(distances), np.less)[0]
-draw_signals(newdatat[np.r_[dtw_mins]], newdatat, newdatas, signal_size=len(pattern_t))
+filteredt = filter_extr(distances, newdatat, newdatas)
+draw_signals(filteredt, newdatat, newdatas, name="filtered")
 
 plt.show()
-raw_input()
