@@ -49,8 +49,8 @@ def merge_files_content(files, folder, ticks_per_sec=1000000000, col_start=0, co
     return merge_lists(interpolated)
 
 
-folder = "maxcsv1"
-signal_files2 = ['Accelerometer_export.csv', 'Gyroscope_export.csv']
+folder = "max_fh_slice"
+signal_files2 = ['Accelerometer_export.csv','Gyroscope_export.csv']
 merged_list2 = merge_files_content(signal_files2, folder)
 
 import numpy
@@ -89,9 +89,9 @@ def get_chars(np_marray):
     return [maxratio, minratio, mean]
 
 
-merged_chars = [get_chars(np_merged[:, i+1]) for i in range(np_merged.shape[1] - 1)]
-from pprint import pprint
-pprint(merged_chars)
+#merged_chars = [get_chars(np_merged[:, i+1]) for i in range(np_merged.shape[1] - 1)]
+#from pprint import pprint
+#pprint(merged_chars)
 
 def draw_graphs():
     import matplotlib.pyplot as plt

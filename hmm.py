@@ -116,10 +116,12 @@ def draw_signals(filteredt, datat, datas, name=""):
     plt.grid()
 
 def draw_patterns(time, sig, name=""):
+    labeled = []
     for pat in sig:
         plt.figure("pattern_" + name)
-        plt.plot(time, pat)
-        plt.grid()
+        labeled += plt.plot(time, pat, label="blah" + str(len(labeled) + 1))
+    plt.grid()
+    plt.legend(handles=labeled)
 
 
 fh_loop_character_filter_map_hardcoded = {
@@ -129,7 +131,7 @@ fh_loop_character_filter_map_hardcoded = {
         5:[9, 1.2] #z
     }
 
-significant_coords = [0]
+significant_coords = [0, 1, 2, 3 ,4, 5]
 
 pattern_t, pattern = get_pattern("pattern.csv")
 pattern = pattern[np.r_[significant_coords]]
@@ -138,6 +140,8 @@ pattern = pattern[np.r_[significant_coords]]
 #pattern_stas = pattern_stas[np.r_[significant_coords]]
 
 fh_loop_character_filter_map = dict(zip(significant_coords, [get_chars(p) for p in pattern]))
+
+print ("Characters: " + str(fh_loop_character_filter_map))
 
 def filter_extr(distances, window_t, window_s):
     founds_pos = []
@@ -156,7 +160,9 @@ def filter_extr(distances, window_t, window_s):
                 sig_chars_map = dict(zip(significant_coords, sig_chars))
             else:
                 continue
-            
+
+            print ("sig " + str(signal_start) + " " + str(dict(zip(significant_coords, [get_chars(p) for p in signal_candidate]))))
+
             coeff = 1.2
             positive = 0
             for k in sig_chars_map.keys():
@@ -205,11 +211,11 @@ def filter_extr(distances, window_t, window_s):
 
 
                 filtered_indexes.append((dist_val, signal_len, idx))
-            print(filtered_indexes)
+            #print(filtered_indexes)
             ranges_local = filtered_indexes
 
         print("LAST")
-        print(filtered_indexes)
+        #print(filtered_indexes)
         return filtered_indexes
 
     min_dists = distances[np.r_[dtw_mins]]
@@ -222,15 +228,16 @@ def filter_extr(distances, window_t, window_s):
 draw_patterns(pattern_t, pattern, "max")
 #draw_patterns(pattern_stas_t, pattern_stas)
 
-newdatat, newdatas = read_and_prepare(['merged.csv',
+newdatat, newdatas = read_and_prepare(['max_fh_slice.csv',
+                                       'merged.csv',
                                        #'iracsv/merged.csv',
-                                       'stasdrivecsv/merged.csv',
+                                       #'stasdrivecsv/merged.csv',
                                        #'stasloopcsv/merged.csv'
                                        ])
 
 newdatas = newdatas[np.r_[significant_coords]]
 
-distances = get_dtw_in_window(newdatas, pattern, window_deviation=0.0)
+distances = get_dtw_in_window(newdatas, pattern, window_deviation=0)
 plt.figure("distances")
 plt.plot(range(len(distances)), [x[0] for x in distances])
 plt.grid()

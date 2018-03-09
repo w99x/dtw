@@ -1,7 +1,7 @@
 import csv
 
 start_time_poimt = 0.0
-signal_len = 13.0
+signal_len = 1300.0
 
 def get_data(filename, bound=(start_time_poimt, start_time_poimt + signal_len)):
     tonanosec = 1000000000.0
@@ -43,5 +43,5 @@ def prepare(folder, file):
 
 if __name__ == "__main__":
     import sys
-    files = ["Accelerometer_export.txt", "Gyroscope_export.txt"]
-    map(lambda x: prepare('stasloop', x), files)
+    files = ["Gyroscope_export.txt"]
+    map(lambda x: prepare('max_fh_slice', x), files)
