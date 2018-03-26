@@ -5,6 +5,13 @@ from scipy.signal import argrelextrema
 from scipy.spatial.distance import euclidean
 from fastdtw import fastdtw
 
+#fh_loop_character_filter_map_hardcoded = {
+#        0:[3.5, 1.5], #x
+#        1:[3.5, 1.3], #y
+#        4:[1.5, 2], #y
+#        5:[9, 1.2] #z
+#    }
+
 def read_and_prepare(filenames):
     data_arrays = []
     maxtime = 0
@@ -77,6 +84,7 @@ def filter_extr_plain_draw(distances, values, threshold=0.8):
 
     return filter_extr_plain(extrvals, values)
 
+
 def get_dtw_in_window(window, patterns, window_deviation=0.0):
     pattern_len = len(patterns[0])
     windows_len = len(window[0])
@@ -87,13 +95,15 @@ def get_dtw_in_window(window, patterns, window_deviation=0.0):
         distances_in_window = []
         for d in range(-sample_deviation, sample_deviation+1):
             window_size = pattern_len - d
-            datawin = window[:, i:window_size + i][0]
+            datawin = window[:, i:window_size + i]
 
             told = [x/window_size for x in range(window_size)]
             tnew = [x/pattern_len for x in range(pattern_len)]
-            datawin_resampled = interpolate_list(told,datawin, tnew)[1]
+            #datawin_resampled = interpolate_list(told,datawin, tnew)[1]
 
-            distance, path = fastdtw(patterns[0], datawin)
+            combined_pattern = np.reshape(patterns, len(patterns) * pattern_len)
+            combined_data = np.reshape(datawin, len(patterns) * pattern_len)
+            distance, path = fastdtw(combined_pattern, combined_data)
             distances_in_window.append((distance, window_size, i))
 
         #dist_mins = argrelextrema(np.array([x[0] for x in distances_in_window]), np.less)[0]
@@ -124,125 +134,193 @@ def draw_patterns(time, sig, name=""):
     plt.legend(handles=labeled)
 
 
-fh_loop_character_filter_map_hardcoded = {
-        0:[3.5, 1.5], #x
-        1:[3.5, 1.3], #y
-        4:[1.5, 2], #y
-        5:[9, 1.2] #z
-    }
+class MotionFilter:
+    pattern_t = None
+    pattern_s = None
 
-significant_coords = [0, 1, 2, 3 ,4, 5]
+    signal_t = None
+    signal_s = None
 
-pattern_t, pattern = get_pattern("pattern.csv")
-pattern = pattern[np.r_[significant_coords]]
+    window_deviation = 0.0
+    distances = None
+    pattern_features = None
+    signal_features = None
+    significant_coords = [0]
+    features_dict = {}
 
-#pattern_stas_t, pattern_stas = get_pattern("pattern_stas.csv")
-#pattern_stas = pattern_stas[np.r_[significant_coords]]
+    def __init__(self, pattern, signal, significant_coords=None, window_deviation=0.0):
+        if significant_coords is not None:
+            self.significant_coords = significant_coords
 
-fh_loop_character_filter_map = dict(zip(significant_coords, [get_chars(p) for p in pattern]))
+        self.pattern_t, self.pattern_s = pattern
+        self.pattern_s = self.pattern_s[np.r_[significant_coords]]
 
-print ("Characters: " + str(fh_loop_character_filter_map))
+        self.signal_t, self.signal_s = signal
+        self.signal_s = self.signal_s[np.r_[significant_coords]]
 
-def filter_extr(distances, window_t, window_s):
-    founds_pos = []
+        self.window_defiation = window_deviation
+        self.distances = get_dtw_in_window(self.signal_s, self.pattern_s, window_deviation=window_deviation)
+        self.pattern_features = dict(zip(self.significant_coords, [get_chars(p) for p in self.pattern_s]))
+        self.features_dict["pattern"] = self.pattern_features
 
-    dtw_mins = argrelextrema(np.array([x[0] for x in distances]), np.less)[0]
-    def filter_by_chars(signal, mindistances):
-        filtered_dist = []
+    def get_signal(self):
+        return self.signal_t, self.signal_s
 
-        for dist in mindistances:
-            signal_len = int(dist[1])
-            signal_start = int(dist[2])
-            signal_candidate = signal[:, signal_start:signal_start + signal_len]
+    def get_pattern(self):
+        return self.pattern_t, self.pattern_s
 
-            sig_chars = [get_chars(s) for s in signal_candidate]
-            if all(sig_chars):
-                sig_chars_map = dict(zip(significant_coords, sig_chars))
-            else:
-                continue
+    def get_distances(self):
+        return self.distances
 
-            print ("sig " + str(signal_start) + " " + str(dict(zip(significant_coords, [get_chars(p) for p in signal_candidate]))))
+    def get_features(self):
+        return self.features_dict
 
-            coeff = 1.2
-            positive = 0
-            for k in sig_chars_map.keys():
-                if abs(sig_chars_map[k][0] * coeff) >= abs(fh_loop_character_filter_map[k][0]):
-                    positive += 1
-                    # if abs(sig_chars_map[k][1] * coeff) >= abs(fh_loop_character_filter_map[k][1]):
-                    #    positive += 1
-            
-            if positive >= len(sig_chars_map):
-                filtered_dist.append(dist)
-        return filtered_dist
+    def do_filter(self):
+        dtw_mins = argrelextrema(np.array([x[0] for x in self.distances]), np.less)[0]
 
-    def remove_cross(ranges):
+        def filter_by_chars(signal, mindistances):
+            filtered_dist = []
+            filtered_chars = []
 
-        ranges_local = ranges
-        crossed = True
-        filtered_indexes = []
+            for dist in mindistances:
+                signal_len = int(dist[1])
+                signal_start = int(dist[2])
+                signal_candidate = signal[:, signal_start:signal_start + signal_len]
 
-        while crossed:
-            crossed = False
-            filtered_indexes = []
-            zipped = list(zip(ranges_local[:-1], ranges_local[1:])) + [(ranges_local[-1], ranges_local[-1])]
-            skip_next = False
-            for range_pair in zipped:
-                if skip_next:
-                    skip_next = False
+                sig_chars = [get_chars(s) for s in signal_candidate]
+                if all(sig_chars):
+                    sig_chars_map = dict(zip(significant_coords, sig_chars))
+                else:
                     continue
-                dist_val, signal_len, idx = range_pair[0]
-                signal_len = int(signal_len)
-                idx = int(idx)
 
-                dist_val_next, signal_len_next, idx_next = range_pair[1]
-                signal_len_next = int(signal_len_next)
-                idx_next = int(idx_next)
+                print("sig " + str(signal_start) + " " + str(
+                    dict(zip(significant_coords, [get_chars(p) for p in signal_candidate]))))
 
-                if idx + signal_len > idx_next:
-                    if (idx_next + signal_len_next <= idx + signal_len) or (
-                                idx + signal_len - idx_next > int(0.5 * signal_len) + 1):
-                        if dist_val_next < dist_val:
-                            continue
+                coeff = 1.2
+                positive = 0
+                for k in sig_chars_map.keys():
+                    if abs(sig_chars_map[k][0] * coeff) >= abs(self.pattern_features[k][0]):
+                        positive += 1
+                        # if abs(sig_chars_map[k][1] * coeff) >= abs(fh_loop_character_filter_map[k][1]):
+                        #    positive += 1
+
+                if positive >= len(sig_chars_map):
+                    filtered_dist.append(dist)
+                filtered_chars.append((sig_chars_map, int(dist[2])))
+            return filtered_dist, filtered_chars
+
+        def remove_cross(ranges):
+
+            ranges_local = ranges
+            crossed = True
+            filtered_indexes = []
+
+            while crossed:
+                crossed = False
+                filtered_indexes = []
+                zipped = list(zip(ranges_local[:-1], ranges_local[1:])) + [(ranges_local[-1], ranges_local[-1])]
+                skip_next = False
+                for range_pair in zipped:
+                    if skip_next:
+                        skip_next = False
+                        continue
+                    dist_val, signal_len, idx = range_pair[0]
+                    signal_len = int(signal_len)
+                    idx = int(idx)
+
+                    dist_val_next, signal_len_next, idx_next = range_pair[1]
+                    signal_len_next = int(signal_len_next)
+                    idx_next = int(idx_next)
+
+                    if idx + signal_len > idx_next:
+                        if (idx_next + signal_len_next <= idx + signal_len) or (
+                                            idx + signal_len - idx_next > int(0.5 * signal_len) + 1):
+                            if dist_val_next < dist_val:
+                                continue
+                            else:
+                                skip_next = True
                         else:
-                            skip_next = True
-                    else:
-                        crossed = True
-                        signal_len -= idx + signal_len - idx_next
+                            crossed = True
+                            signal_len -= idx + signal_len - idx_next
+
+                    filtered_indexes.append((dist_val, signal_len, idx))
+                # print(filtered_indexes)
+                ranges_local = filtered_indexes
+
+            print("LAST")
+            # print(filtered_indexes)
+            return filtered_indexes
+
+        result = self.distances[np.r_[dtw_mins]]
+        result, features_first = filter_by_chars(self.signal_s, result)
+        result = remove_cross(result)
+        result, features_second = filter_by_chars(self.signal_s, result)
+        self.features_dict["filtered_signal_first"] = [(self.signal_t[f[1]], f[0]) for f in features_first]
+        self.features_dict["filtered_signal_second"] = [(self.signal_t[f[1]], f[0]) for f in features_second]
+
+        founds_pos = [(self.signal_t[dist[2]], int(dist[1])) for dist in result]
+        return founds_pos
 
 
-                filtered_indexes.append((dist_val, signal_len, idx))
-            #print(filtered_indexes)
-            ranges_local = filtered_indexes
+def draw_features(features_map, label=""):
+    pattern_key = 'pattern'
+    pattern_features = features_map[pattern_key]
 
-        print("LAST")
-        #print(filtered_indexes)
-        return filtered_indexes
+    for feature_key, signal_features in features_map.items():
+        if feature_key == pattern_key:
+            continue
+        plt.figure("features_" + feature_key + label)
+        features_t = [x[0] for x in signal_features]
+        fs_keys = signal_features[0][1].keys()
+        features_s_map = dict(zip(fs_keys, [[]] * len(fs_keys)))
+        for f in signal_features:
+            for k, v in f[1].items():
+                features_s_map[k] += [v]
 
-    min_dists = distances[np.r_[dtw_mins]]
-    distances_by_chars = filter_by_chars(window_s, min_dists)
-    result = remove_cross(distances_by_chars)
-    result = filter_by_chars(window_s, result)
-    founds_pos = [(window_t[dist[2]], int(dist[1])) for dist in result]
-    return founds_pos
+        for fs in fs_keys:
+            features_s_map[fs] = list(zip(*features_s_map[fs]))
 
-draw_patterns(pattern_t, pattern, "max")
-#draw_patterns(pattern_stas_t, pattern_stas)
+        for k, vals in pattern_features.items():
+            for v in vals:
+                label = str(k) + '_' + str(v)
+                plt.subplot(211 + vals.index(v))
+                labeled = []
+                labeled += plt.plot([data_t[0], data_t[-1]], [v, v], '-', label=label)
+                #coeff = 1.2
+                #plt.plot([data_t[0], data_t[-1]], [v * coeff, v * coeff], '-', label=label)
+                labeled += plt.plot(features_t, features_s_map[k][vals.index(v)], '*', label=label)
+                plt.grid()
+                plt.legend(handles=labeled)
 
-newdatat, newdatas = read_and_prepare(['max_fh_slice.csv',
-                                       'merged.csv',
-                                       #'iracsv/merged.csv',
-                                       #'stasdrivecsv/merged.csv',
-                                       #'stasloopcsv/merged.csv'
-                                       ])
 
-newdatas = newdatas[np.r_[significant_coords]]
+if __name__ == "__main__":
+    def find_pattern_and_draw(motion_pattern, motion_signal, significant_coords, label=""):
+        motion_filter = MotionFilter(motion_pattern, motion_signal, significant_coords)
+        distances = motion_filter.get_distances()
+        filteredt = motion_filter.do_filter()
+        features = motion_filter.get_features()
+        draw_features(features, label=label)
+        #draw_patterns(*motion_filter.get_pattern(), "max" + label)
+        #plt.figure("distances" + label)
+        #plt.plot(range(len(distances)), [x[0] for x in distances])
+        #plt.grid()
+        draw_signals(filteredt, *motion_filter.get_signal(), name="filtered" + label)
 
-distances = get_dtw_in_window(newdatas, pattern, window_deviation=0)
-plt.figure("distances")
-plt.plot(range(len(distances)), [x[0] for x in distances])
-plt.grid()
 
-filteredt = filter_extr(distances, newdatat, newdatas)
-draw_signals(filteredt, newdatat, newdatas, name="filtered")
+    significant_coords_list = [[0], [1], [2]]
 
-plt.show()
+    # pattern_stas_t, pattern_stas = get_pattern("pattern_stas.csv")
+    # pattern_stas = pattern_stas[np.r_[significant_coords]]
+
+    for significant_coords in significant_coords_list:
+        pattern_t, pattern = get_pattern("pattern.csv")
+        data_t, data_s = read_and_prepare(['max_fh_slice.csv',
+                                            'merged.csv',
+                                           # 'iracsv/merged.csv',
+                                           # 'stasdrivecsv/merged.csv',
+                                           # 'stasloopcsv/merged.csv'
+                                           ])
+
+        find_pattern_and_draw((pattern_t, pattern), (data_t, data_s), significant_coords, label=str(significant_coords))
+
+    plt.show()
