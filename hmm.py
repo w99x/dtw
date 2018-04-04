@@ -58,6 +58,8 @@ def get_chars(np_marray):
 
     std = np.std(np_marray)
     var = np.var(np_marray)
+    zero_cross = np.nonzero(np.diff(np_marray > 0)))[0]
+    mean_cross = np.nonzero(np.diff((np_marray - np.mean(np_marray)) > 0)))[0]
 
     return [std, var]
 
