@@ -46,6 +46,8 @@ def get_chars(np_marray):
     #mean crossin rate
     #Pairwise Correlation
 
+    zero_cross = np.nonzero(np.diff(np_marray > 0)))[0]
+    mean_cross = np.nonzero(np.diff((np_marray - np.mean(np_marray)) > 0)))[0]
     return features_dict
 
 def interpolate_list(xlist, ylist, xnew):
