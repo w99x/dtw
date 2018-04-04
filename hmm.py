@@ -32,34 +32,21 @@ def get_pattern(patternfilename):
     return pattern_t, pattern
 
 def get_chars(np_marray):
-    minimumsidx = argrelextrema(np_marray, np.less)
-    maximumsidx = argrelextrema(np_marray, np.greater)
+    #maximum position
+    features_dict = {}
+    features_dict["std"] = np.std(np_marray)
+    features_dict["var"] = np.var(np_marray)
 
-    def get_vals_by_idx(idxs):
-        return [np_marray[x] for x in idxs]
+    import scipy.stats as stats
+    features_dict["iqr"] = stats.iqr(np_marray)
+    features_dict["skew"] = stats.skew(np_marray)
+    features_dict["kurtosis"] = stats.kurtosis(np_marray)
+    features_dict["entropy"] = stats.entropy(np_marray)
+    #zero crossing rate
+    #mean crossin rate
+    #Pairwise Correlation
 
-    minimums = get_vals_by_idx(minimumsidx[0])
-    maximums = get_vals_by_idx(maximumsidx[0])
-    #if len(maximums) == 0 or len(minimums) == 0:
-    #    return None
-    #minmax = np.max(minimums)
-    #minmin = np.min(minimums)
-    #
-    #maxmin = np.min(maximums)
-    #maxmax = np.max(maximums)
-    #
-    #maxmax -= minmin
-    #maxmin -= minmin
-    #minmin -= maxmax
-    #minmax -= maxmax
-    #maxratio = maxmax / maxmin
-    #minratio = minmin / minmax
-
-
-    std = np.std(np_marray)
-    var = np.var(np_marray)
-
-    return [std, var]
+    return features_dict
 
 def interpolate_list(xlist, ylist, xnew):
     from scipy import interpolate
@@ -176,7 +163,18 @@ class MotionFilter:
         return self.features_dict
 
     def do_filter(self):
-        dtw_mins = argrelextrema(np.array([x[0] for x in self.distances]), np.less)[0]
+        dtw_mins = argrelextrema(np.array([x[0] for x in self.distances]), np.less, order=4)[0]
+
+        # plt.figure("aaaa")
+        # plt.plot(range(len(self.distances)), [x[0] for x in self.distances])
+        # color = ['*b', 'og', '--r', '+c', '^m', 'sy', '>k', 'Dw']
+        # lbled = []
+        # for i in [4]:
+        #     dtw_minsa = argrelextrema(np.array([x[0] for x in self.distances]), np.less, order=i)[0]
+        #     lbled += plt.plot(dtw_minsa, [self.distances[x][0] for x in dtw_minsa], color[i], label=str(i+1))
+        #     plt.grid()
+        # plt.grid()
+        # plt.legend(handles=lbled)
 
         def filter_by_chars(signal, mindistances):
             filtered_dist = []
@@ -199,14 +197,14 @@ class MotionFilter:
                 coeff = 1.2
                 positive = 0
                 for k in sig_chars_map.keys():
-                    if abs(sig_chars_map[k][0] * coeff) >= abs(self.pattern_features[k][0]):
+                    if abs(sig_chars_map[k]["std"] * coeff) >= abs(self.pattern_features[k]["std"]):
                         positive += 1
                         # if abs(sig_chars_map[k][1] * coeff) >= abs(fh_loop_character_filter_map[k][1]):
                         #    positive += 1
 
                 if positive >= len(sig_chars_map):
                     filtered_dist.append(dist)
-                filtered_chars.append((sig_chars_map, int(dist[2])))
+                    filtered_chars.append((sig_chars_map, int(dist[2])))
             return filtered_dist, filtered_chars
 
         def remove_cross(ranges):
@@ -258,7 +256,7 @@ class MotionFilter:
         self.features_dict["filtered_signal_first"] = [(self.signal_t[f[1]], f[0]) for f in features_first]
         self.features_dict["filtered_signal_second"] = [(self.signal_t[f[1]], f[0]) for f in features_second]
 
-        founds_pos = [(self.signal_t[dist[2]], int(dist[1])) for dist in result]
+        founds_pos = [(self.signal_t[int(dist[2])], int(dist[1])) for dist in result]
         return founds_pos
 
 
@@ -277,18 +275,22 @@ def draw_features(features_map, label=""):
             for k, v in f[1].items():
                 features_s_map[k] += [v]
 
-        for fs in fs_keys:
-            features_s_map[fs] = list(zip(*features_s_map[fs]))
+        #for fs in fs_keys:
+        #    features_s_map[fs] = list(zip(*features_s_map[fs]))
 
         for k, vals in pattern_features.items():
-            for v in vals:
-                label = str(k) + '_' + str(v)
-                plt.subplot(211 + vals.index(v))
+            features_number = len(vals)
+            subplot_index = 0
+            for vkey, val in vals.items():
+                sublabel = str(vkey)
+                plt.subplot(features_number * 100 + 11 + subplot_index)
+                subplot_index += 1
                 labeled = []
-                labeled += plt.plot([data_t[0], data_t[-1]], [v, v], '-', label=label)
-                #coeff = 1.2
-                #plt.plot([data_t[0], data_t[-1]], [v * coeff, v * coeff], '-', label=label)
-                labeled += plt.plot(features_t, features_s_map[k][vals.index(v)], '*', label=label)
+                labeled += plt.plot([data_t[0], data_t[-1]], [val, val], '-', label=sublabel)
+                features_to_draw = []
+                for feature in features_s_map[k]:
+                    features_to_draw.append(feature[vkey])
+                labeled += plt.plot(features_t, features_to_draw, '*', label=sublabel)
                 plt.grid()
                 plt.legend(handles=labeled)
 
@@ -304,10 +306,11 @@ if __name__ == "__main__":
         #plt.figure("distances" + label)
         #plt.plot(range(len(distances)), [x[0] for x in distances])
         #plt.grid()
+        print(len(filteredt))
         draw_signals(filteredt, *motion_filter.get_signal(), name="filtered" + label)
 
 
-    significant_coords_list = [[0], [1], [2]]
+    significant_coords_list = [[0]]
 
     # pattern_stas_t, pattern_stas = get_pattern("pattern_stas.csv")
     # pattern_stas = pattern_stas[np.r_[significant_coords]]
