@@ -36,18 +36,16 @@ def get_chars(np_marray):
     features_dict = {}
     features_dict["std"] = np.std(np_marray)
     features_dict["var"] = np.var(np_marray)
-
     import scipy.stats as stats
     features_dict["iqr"] = stats.iqr(np_marray)
     features_dict["skew"] = stats.skew(np_marray)
     features_dict["kurtosis"] = stats.kurtosis(np_marray)
     features_dict["entropy"] = stats.entropy(np_marray)
-    #zero crossing rate
-    #mean crossin rate
+    features_dict["zero_crossing"] = len(np.nonzero(np.diff(np_marray > 0))[0])
+    features_dict["mean_crossing"] = len(np.nonzero(np.diff((np_marray - np.mean(np_marray)) > 0))[0])
+
     #Pairwise Correlation
 
-    zero_cross = np.nonzero(np.diff(np_marray > 0)))[0]
-    mean_cross = np.nonzero(np.diff((np_marray - np.mean(np_marray)) > 0)))[0]
     return features_dict
 
 def interpolate_list(xlist, ylist, xnew):
@@ -88,10 +86,10 @@ def get_dtw_in_window(window, patterns, window_deviation=0.0):
 
             told = [x/window_size for x in range(window_size)]
             tnew = [x/pattern_len for x in range(pattern_len)]
-            #datawin_resampled = interpolate_list(told,datawin, tnew)[1]
+            datawin_resampled = np.array([interpolate_list(told, dw, tnew)[1] for dw in datawin])
 
             combined_pattern = np.reshape(patterns, len(patterns) * pattern_len)
-            combined_data = np.reshape(datawin, len(patterns) * pattern_len)
+            combined_data = np.reshape(datawin_resampled, len(patterns) * pattern_len)
             distance, path = fastdtw(combined_pattern, combined_data)
             distances_in_window.append((distance, window_size, i))
 
@@ -206,7 +204,7 @@ class MotionFilter:
 
                 if positive >= len(sig_chars_map):
                     filtered_dist.append(dist)
-                    filtered_chars.append((sig_chars_map, int(dist[2])))
+                filtered_chars.append((sig_chars_map, int(dist[2])))
             return filtered_dist, filtered_chars
 
         def remove_cross(ranges):
@@ -253,10 +251,11 @@ class MotionFilter:
 
         result = self.distances[np.r_[dtw_mins]]
         result, features_first = filter_by_chars(self.signal_s, result)
-        result = remove_cross(result)
         result, features_second = filter_by_chars(self.signal_s, result)
-        self.features_dict["filtered_signal_first"] = [(self.signal_t[f[1]], f[0]) for f in features_first]
-        self.features_dict["filtered_signal_second"] = [(self.signal_t[f[1]], f[0]) for f in features_second]
+        result = remove_cross(result)
+        #result, features_second = filter_by_chars(self.signal_s, result)
+        #self.features_dict["filtered_signal_first"] = [(self.signal_t[f[1]], f[0]) for f in features_first]
+        #self.features_dict["filtered_signal_second"] = [(self.signal_t[f[1]], f[0]) for f in features_second]
 
         founds_pos = [(self.signal_t[int(dist[2])], int(dist[1])) for dist in result]
         return founds_pos
@@ -299,15 +298,15 @@ def draw_features(features_map, label=""):
 
 if __name__ == "__main__":
     def find_pattern_and_draw(motion_pattern, motion_signal, significant_coords, label=""):
-        motion_filter = MotionFilter(motion_pattern, motion_signal, significant_coords)
+        motion_filter = MotionFilter(motion_pattern, motion_signal, significant_coords, window_deviation=0.5)
         distances = motion_filter.get_distances()
         filteredt = motion_filter.do_filter()
         features = motion_filter.get_features()
         draw_features(features, label=label)
-        #draw_patterns(*motion_filter.get_pattern(), "max" + label)
-        #plt.figure("distances" + label)
-        #plt.plot(range(len(distances)), [x[0] for x in distances])
-        #plt.grid()
+        draw_patterns(*motion_filter.get_pattern(), "max" + label)
+        plt.figure("distances" + label)
+        plt.plot(range(len(distances)), [x[0] for x in distances])
+        plt.grid()
         print(len(filteredt))
         draw_signals(filteredt, *motion_filter.get_signal(), name="filtered" + label)
 
@@ -326,6 +325,6 @@ if __name__ == "__main__":
                                            # 'stasloopcsv/merged.csv'
                                            ])
 
-        find_pattern_and_draw((pattern_t, pattern), (data_t, data_s), significant_coords, label=str(significant_coords))
+        find_pattern_and_draw((pattern_t, pattern), (data_t[1045:1090], data_s[:,1045:1090]), significant_coords, label=str(significant_coords))
 
     plt.show()
