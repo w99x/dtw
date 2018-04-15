@@ -71,34 +71,6 @@ def filter_extr_plain_draw(distances, values, threshold=0.8):
 
     return filter_extr_plain(extrvals, values)
 
-
-def get_dtw_in_window(window, patterns, window_deviation=0.0):
-    pattern_len = len(patterns[0])
-    windows_len = len(window[0])
-    distances = []
-
-    sample_deviation = int(pattern_len*window_deviation)
-    for i in range(windows_len - int(pattern_len * (1 + window_deviation)) - 1):
-        distances_in_window = []
-        for d in range(-sample_deviation, sample_deviation+1):
-            window_size = pattern_len - d
-            datawin = window[:, i:window_size + i]
-
-            told = [x/window_size for x in range(window_size)]
-            tnew = [x/pattern_len for x in range(pattern_len)]
-            datawin_resampled = np.array([interpolate_list(told, dw, tnew)[1] for dw in datawin])
-
-            combined_pattern = np.reshape(patterns, len(patterns) * pattern_len)
-            combined_data = np.reshape(datawin_resampled, len(patterns) * pattern_len)
-            distance, path = fastdtw(combined_pattern, combined_data)
-            distances_in_window.append((distance, window_size, i))
-
-        #dist_mins = argrelextrema(np.array([x[0] for x in distances_in_window]), np.less)[0]
-        dist_min = np.argmin(np.array([x[0] for x in distances_in_window]))
-        distances.extend([tuple(x) for x in np.array(distances_in_window)[np.r_[dist_min]]])
-    return np.array(distances)
-
-
 def draw_signals(filteredt, datat, datas, name=""):
     minmaxdist = [[-50, 100]] * len(filteredt)
 
@@ -121,19 +93,22 @@ def draw_patterns(time, sig, name=""):
     plt.legend(handles=labeled)
 
 
-class MotionFilter:
+class MotionFilter():
     pattern_t = None
     pattern_s = None
 
     signal_t = None
     signal_s = None
 
-    window_deviation = 0.0
-    distances = None
     pattern_features = None
     signal_features = None
-    significant_coords = [0]
+
     features_dict = {}
+
+    window_deviation = 0.0
+    distances = None
+    significant_coords = [0]
+
 
     def __init__(self, pattern, signal, significant_coords=None, window_deviation=0.0):
         if significant_coords is not None:
@@ -145,10 +120,48 @@ class MotionFilter:
         self.signal_t, self.signal_s = signal
         self.signal_s = self.signal_s[np.r_[significant_coords]]
 
-        self.window_defiation = window_deviation
-        self.distances = get_dtw_in_window(self.signal_s, self.pattern_s, window_deviation=window_deviation)
+        self.window_deviation = window_deviation
         self.pattern_features = dict(zip(self.significant_coords, [get_chars(p) for p in self.pattern_s]))
         self.features_dict["pattern"] = self.pattern_features
+
+        self.signal_transform_cb = lambda x: x
+        self.calc_distance_cb = lambda p, s: fastdtw(p, s)[0]
+
+    def set_signal_transform_cb(self, cb):
+        self.signal_transform_cb = cb
+
+    def set_calc_distance_cb(self, cb):
+        self.calc_distance_cb = cb
+
+    def calc_distances(self, signal, patterns_orig):
+        patterns = self.signal_transform_cb(patterns_orig)
+
+        transformed_len = np.size(patterns)
+        pattern_len = np.size(patterns_orig)
+        signal_len = np.size(signal)
+        distances = []
+
+        sample_deviation = int(pattern_len * self.window_deviation)
+        for i in range(signal_len - int(pattern_len * (1 + self.window_deviation)) - 1):
+            distances_in_window = []
+            for d in range(-sample_deviation, sample_deviation + 1):
+                window_size = pattern_len - d
+                window = self.signal_transform_cb(signal[:, i:window_size + i])
+                window_len = len(window[0])
+
+                if window_len != pattern_len:
+                    told = [x / window_size for x in range(window_size)]
+                    tnew = [x / pattern_len for x in range(pattern_len)]
+                    window = np.array([interpolate_list(told, dw, tnew)[1] for dw in window])
+
+                combined_pattern = np.reshape(patterns, len(patterns) * pattern_len)
+                combined_data = np.reshape(window, len(patterns) * pattern_len)
+                distance= self.calc_distance_cb(combined_pattern, combined_data)
+                distances_in_window.append((distance, window_size, i))
+
+            dist_min = np.argmin(np.array([x[0] for x in distances_in_window]))
+            distances.extend([tuple(x) for x in np.array(distances_in_window)[np.r_[dist_min]]])
+        return np.array(distances)
 
     def get_signal(self):
         return self.signal_t, self.signal_s
@@ -163,19 +176,8 @@ class MotionFilter:
         return self.features_dict
 
     def do_filter(self):
+        self.distances = self.calc_distances(self.signal_s, self.pattern_s)
         dtw_mins = argrelextrema(np.array([x[0] for x in self.distances]), np.less, order=4)[0]
-
-        # plt.figure("aaaa")
-        # plt.plot(range(len(self.distances)), [x[0] for x in self.distances])
-        # color = ['*b', 'og', '--r', '+c', '^m', 'sy', '>k', 'Dw']
-        # lbled = []
-        # for i in [4]:
-        #     dtw_minsa = argrelextrema(np.array([x[0] for x in self.distances]), np.less, order=i)[0]
-        #     lbled += plt.plot(dtw_minsa, [self.distances[x][0] for x in dtw_minsa], color[i], label=str(i+1))
-        #     plt.grid()
-        # plt.grid()
-        # plt.legend(handles=lbled)
-
         def filter_by_chars(signal, mindistances):
             filtered_dist = []
             filtered_chars = []
@@ -187,12 +189,12 @@ class MotionFilter:
 
                 sig_chars = [get_chars(s) for s in signal_candidate]
                 if all(sig_chars):
-                    sig_chars_map = dict(zip(significant_coords, sig_chars))
+                    sig_chars_map = dict(zip(self.significant_coords, sig_chars))
                 else:
                     continue
 
                 print("sig " + str(signal_start) + " " + str(
-                    dict(zip(significant_coords, [get_chars(p) for p in signal_candidate]))))
+                    dict(zip(self.significant_coords, [get_chars(p) for p in signal_candidate]))))
 
                 coeff = 1.2
                 positive = 0
@@ -295,12 +297,72 @@ def draw_features(features_map, label=""):
                 plt.grid()
                 plt.legend(handles=labeled)
 
+def get_rose_diagram(signal):
+    from scipy.spatial.distance import cosine
+    dimension = len(signal)
+    from itertools import product
+    basis = list(product([0,1,-1], repeat=dimension))
+    basis.remove(tuple([0]*dimension))
+    norm_signal = np.array([s / np.amax(s) for s in signal])
+
+    diagram_map = dict(zip(basis,[0]*len(basis)))
+    def push_sample(vect):
+        cosines = { x: 1 - cosine(x, vect) for x in basis}
+        angles =  { x: np.arccos(v) for x,v in cosines.items()}
+
+        nearest_two_angles = sorted([a for a in angles.values()])[0:2]
+        planes = { x:v for x,v in angles.items() if v in nearest_two_angles }
+
+        vect_len = np.linalg.norm(vect)
+        for k in planes.keys():
+            cos = cosines[k]
+            diagram_map[k] += vect_len * cos
+
+    [push_sample(s) for s in norm_signal.T[:]]
+
+    diagram = []
+    for k in sorted(diagram_map.keys()):
+        v = diagram_map[k]
+        vect_len = np.linalg.norm(k)
+        coeff = v / vect_len
+        x = k[0] * coeff
+        y = k[1] * coeff
+
+        check = np.linalg.norm([x,y]) == v
+
+        diagram.append([(x,y), v])
+
+    return diagram
+
+def get_rose_lengths(signal):
+    return np.array([v for k,v in get_rose_diagram(signal)])
+
+def draw_rose_vectors(vectors):
+    maxpoint = np.amax(np.abs(vectors)) + 1
+    point_num = len(vectors)
+    dimension = len(vectors[0])
+    draw = list(zip([[0]*dimension]*point_num, vectors))
+    plt.figure('rose')
+    start_point = [0]*dimension
+    for d in vectors:
+        plt.plot(*zip(start_point, d), '-*', linewidth=5)
+
+    plt.xlim(-maxpoint, maxpoint)
+    plt.ylim(-maxpoint, maxpoint)
+    plt.grid()
+
 
 if __name__ == "__main__":
     def find_pattern_and_draw(motion_pattern, motion_signal, significant_coords, label=""):
-        motion_filter = MotionFilter(motion_pattern, motion_signal, significant_coords, window_deviation=0.5)
-        distances = motion_filter.get_distances()
+        motion_filter = MotionFilter(motion_pattern, motion_signal, significant_coords)
+        diagram = get_rose_diagram(motion_filter.get_pattern()[1])
+        rose_pattern_vectors = [k for k,v in diagram]
+        draw_rose_vectors(rose_pattern_vectors)
+        motion_filter.set_signal_transform_cb(get_rose_lengths)
+        motion_filter.set_calc_distance_cb(euclidean)
+
         filteredt = motion_filter.do_filter()
+        distances = motion_filter.get_distances()
         features = motion_filter.get_features()
         draw_features(features, label=label)
         draw_patterns(*motion_filter.get_pattern(), "max" + label)
@@ -311,7 +373,7 @@ if __name__ == "__main__":
         draw_signals(filteredt, *motion_filter.get_signal(), name="filtered" + label)
 
 
-    significant_coords_list = [[0]]
+    significant_coords_list = [[0,1]]
 
     # pattern_stas_t, pattern_stas = get_pattern("pattern_stas.csv")
     # pattern_stas = pattern_stas[np.r_[significant_coords]]
@@ -325,6 +387,6 @@ if __name__ == "__main__":
                                            # 'stasloopcsv/merged.csv'
                                            ])
 
-        find_pattern_and_draw((pattern_t, pattern), (data_t[1045:1090], data_s[:,1045:1090]), significant_coords, label=str(significant_coords))
+        find_pattern_and_draw((pattern_t, pattern), (data_t, data_s), significant_coords, label=str(significant_coords))
 
     plt.show()
