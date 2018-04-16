@@ -136,9 +136,9 @@ class MotionFilter():
     def calc_distances(self, signal, patterns_orig):
         patterns = self.signal_transform_cb(patterns_orig)
 
-        transformed_len = np.size(patterns)
-        pattern_len = np.size(patterns_orig)
-        signal_len = np.size(signal)
+        transformed_len = len(patterns)
+        pattern_len = patterns_orig.shape[1]
+        signal_len = signal.shape[1]
         distances = []
 
         sample_deviation = int(pattern_len * self.window_deviation)
@@ -147,15 +147,15 @@ class MotionFilter():
             for d in range(-sample_deviation, sample_deviation + 1):
                 window_size = pattern_len - d
                 window = self.signal_transform_cb(signal[:, i:window_size + i])
-                window_len = len(window[0])
+                window_len = len(window)
 
-                if window_len != pattern_len:
+                if window_size != pattern_len: #window_len != signal_len ??
                     told = [x / window_size for x in range(window_size)]
                     tnew = [x / pattern_len for x in range(pattern_len)]
                     window = np.array([interpolate_list(told, dw, tnew)[1] for dw in window])
 
-                combined_pattern = np.reshape(patterns, len(patterns) * pattern_len)
-                combined_data = np.reshape(window, len(patterns) * pattern_len)
+                combined_pattern = np.reshape(patterns, 1 * transformed_len)#len(patterns) * pattern_len)
+                combined_data = np.reshape(window, 1 * transformed_len)#len(patterns) * pattern_len)
                 distance= self.calc_distance_cb(combined_pattern, combined_data)
                 distances_in_window.append((distance, window_size, i))
 
