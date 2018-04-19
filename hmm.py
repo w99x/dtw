@@ -252,9 +252,9 @@ class MotionFilter():
             return filtered_indexes
 
         result = self.distances[np.r_[dtw_mins]]
-        result, features_first = filter_by_chars(self.signal_s, result)
-        result, features_second = filter_by_chars(self.signal_s, result)
-        result = remove_cross(result)
+        #result, features_first = filter_by_chars(self.signal_s, result)
+        #result, features_second = filter_by_chars(self.signal_s, result)
+        #result = remove_cross(result)
         #result, features_second = filter_by_chars(self.signal_s, result)
         #self.features_dict["filtered_signal_first"] = [(self.signal_t[f[1]], f[0]) for f in features_first]
         #self.features_dict["filtered_signal_second"] = [(self.signal_t[f[1]], f[0]) for f in features_second]
@@ -297,6 +297,7 @@ def draw_features(features_map, label=""):
                 plt.grid()
                 plt.legend(handles=labeled)
 
+kkk = 0
 def get_rose_diagram(signal):
     from scipy.spatial.distance import cosine
     dimension = len(signal)
@@ -332,17 +333,20 @@ def get_rose_diagram(signal):
 
         diagram.append([(x,y), v])
 
+    global kkk
+    kkk = kkk + 1
+    draw_rose_vectors([k for k,v in diagram], num=str(kkk))
     return diagram
 
 def get_rose_lengths(signal):
     return np.array([v for k,v in get_rose_diagram(signal)])
 
-def draw_rose_vectors(vectors):
+def draw_rose_vectors(vectors, num=""):
     maxpoint = np.amax(np.abs(vectors)) + 1
     point_num = len(vectors)
     dimension = len(vectors[0])
     draw = list(zip([[0]*dimension]*point_num, vectors))
-    plt.figure('rose')
+    plt.figure('rose'+ num)
     start_point = [0]*dimension
     for d in vectors:
         plt.plot(*zip(start_point, d), '-*', linewidth=5)
@@ -386,7 +390,8 @@ if __name__ == "__main__":
                                            # 'stasdrivecsv/merged.csv',
                                            # 'stasloopcsv/merged.csv'
                                            ])
-
-        find_pattern_and_draw((pattern_t, pattern), (data_t, data_s), significant_coords, label=str(significant_coords))
+        low = 1118
+        high = 1140
+        find_pattern_and_draw((pattern_t, pattern), (data_t[low:high], data_s[:, low:high]), significant_coords, label=str(significant_coords))
 
     plt.show()
