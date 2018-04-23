@@ -142,7 +142,7 @@ class MotionFilter():
         distances = []
 
         sample_deviation = int(pattern_len * self.window_deviation)
-        for i in range(signal_len - int(pattern_len * (1 + self.window_deviation)) - 1):
+        for i in range(signal_len - int(pattern_len * (1 + self.window_deviation))):
             distances_in_window = []
             for d in range(-sample_deviation, sample_deviation + 1):
                 window_size = pattern_len - d
@@ -335,7 +335,8 @@ def get_rose_diagram(signal):
 
     global kkk
     kkk = kkk + 1
-    draw_rose_vectors([k for k,v in diagram], num=str(kkk))
+    if kkk != 1:
+        draw_rose_vectors([k for k,v in diagram], num=str(kkk))
     return diagram
 
 def get_rose_lengths(signal):
@@ -361,7 +362,7 @@ if __name__ == "__main__":
         motion_filter = MotionFilter(motion_pattern, motion_signal, significant_coords)
         diagram = get_rose_diagram(motion_filter.get_pattern()[1])
         rose_pattern_vectors = [k for k,v in diagram]
-        draw_rose_vectors(rose_pattern_vectors)
+        draw_rose_vectors(rose_pattern_vectors, num="100600")
         motion_filter.set_signal_transform_cb(get_rose_lengths)
         motion_filter.set_calc_distance_cb(euclidean)
 
@@ -390,8 +391,8 @@ if __name__ == "__main__":
                                            # 'stasdrivecsv/merged.csv',
                                            # 'stasloopcsv/merged.csv'
                                            ])
-        low = 1118
-        high = 1140
+        low = 1119
+        high = 1131
         find_pattern_and_draw((pattern_t, pattern), (data_t[low:high], data_s[:, low:high]), significant_coords, label=str(significant_coords))
 
     plt.show()
