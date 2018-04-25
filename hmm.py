@@ -136,7 +136,7 @@ class MotionFilter():
     def calc_distances(self, signal, patterns_orig):
         patterns = self.signal_transform_cb(patterns_orig)
 
-        transformed_len = len(patterns)
+        transformed_len = len(patterns[0]) #hack for regula using
         pattern_len = patterns_orig.shape[1]
         signal_len = signal.shape[1]
         distances = []
@@ -175,9 +175,29 @@ class MotionFilter():
     def get_features(self):
         return self.features_dict
 
+    def __get_min_in_range(self, min_idxs, vals, min_range=1):
+        minvals = vals[np.r_[min_idxs]]
+        mins = min_idxs
+        diffs = np.diff(mins) < min_range
+        while diffs.any():
+            new_mins=[]
+            for idx in list(range(len(diffs))):
+                d = diffs[idx]
+                if d:
+                    new_mins.append(mins[idx]) if vals[mins[idx]] <= vals[mins[idx+1]] else new_mins.append(mins[idx+1])
+                else:
+                    new_mins.append(mins[idx])
+            mins=np.array(np.unique(new_mins))
+            diffs = np.diff(mins) < min_range
+            if len(diffs) == 0:
+                break
+        return mins
+
     def do_filter(self):
         self.distances = self.calc_distances(self.signal_s, self.pattern_s)
-        dtw_mins = argrelextrema(np.array([x[0] for x in self.distances]), np.less, order=4)[0]
+        distances_vals = np.array([x[0] for x in self.distances])
+        dtw_mins = argrelextrema(distances_vals, np.less_equal, order=3)[0]
+        #dtw_mins = self.__get_min_in_range(dtw_mins, distances_vals, min_range=5)
         def filter_by_chars(signal, mindistances):
             filtered_dist = []
             filtered_chars = []
@@ -304,7 +324,7 @@ def get_rose_diagram(signal):
     from itertools import product
     basis = list(product([0,1,-1], repeat=dimension))
     basis.remove(tuple([0]*dimension))
-    norm_signal = np.array([s / np.amax(s) for s in signal])
+    norm_signal = np.array([s / np.amax(np.abs(s)) for s in signal])
 
     diagram_map = dict(zip(basis,[0]*len(basis)))
     def push_sample(vect):
@@ -335,8 +355,8 @@ def get_rose_diagram(signal):
 
     global kkk
     kkk = kkk + 1
-    if kkk != 1:
-        draw_rose_vectors([k for k,v in diagram], num=str(kkk))
+    #if kkk != 1:
+    #    draw_rose_vectors([k for k,v in diagram], num=str(kkk))
     return diagram
 
 def get_rose_lengths(signal):
@@ -362,7 +382,7 @@ if __name__ == "__main__":
         motion_filter = MotionFilter(motion_pattern, motion_signal, significant_coords)
         diagram = get_rose_diagram(motion_filter.get_pattern()[1])
         rose_pattern_vectors = [k for k,v in diagram]
-        draw_rose_vectors(rose_pattern_vectors, num="100600")
+        draw_rose_vectors(rose_pattern_vectors, num="pattern")
         motion_filter.set_signal_transform_cb(get_rose_lengths)
         motion_filter.set_calc_distance_cb(euclidean)
 
@@ -375,7 +395,13 @@ if __name__ == "__main__":
         plt.plot(range(len(distances)), [x[0] for x in distances])
         plt.grid()
         print(len(filteredt))
-        draw_signals(filteredt, *motion_filter.get_signal(), name="filtered" + label)
+        signal = motion_filter.get_signal()
+        draw_signals(filteredt, *signal, name="filtered" + label)
+
+        for t in filteredt:
+            s = np.where(signal[0] == t[0])[0][0]
+            transformed = get_rose_diagram(signal[1][:, s:s+t[1]])
+            draw_rose_vectors([k for k,v in transformed], num=str(t[0]))
 
 
     significant_coords_list = [[0,1]]
@@ -385,14 +411,14 @@ if __name__ == "__main__":
 
     for significant_coords in significant_coords_list:
         pattern_t, pattern = get_pattern("pattern.csv")
-        data_t, data_s = read_and_prepare(['max_fh_slice.csv',
-                                            'merged.csv',
-                                           # 'iracsv/merged.csv',
-                                           # 'stasdrivecsv/merged.csv',
-                                           # 'stasloopcsv/merged.csv'
+        data_t, data_s = read_and_prepare([#'max_fh_slice.csv',
+                                            #'merged.csv',
+                                            #'iracsv/merged.csv',
+                                            #'stasdrivecsv/merged.csv',
+                                            'stasloopcsv/merged.csv'
                                            ])
-        low = 1119
-        high = 1131
+        low = 139#1100
+        high = 165#len(data_t)#1140
         find_pattern_and_draw((pattern_t, pattern), (data_t[low:high], data_s[:, low:high]), significant_coords, label=str(significant_coords))
 
     plt.show()
