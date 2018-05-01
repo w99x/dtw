@@ -12,6 +12,8 @@ from fastdtw import fastdtw
 #        4:[1.5, 2], #y
 #        5:[9, 1.2] #z
 #    }
+from sympy import transpose
+
 
 def read_and_prepare(filenames):
     data_arrays = []
@@ -47,11 +49,9 @@ def get_chars(np_marray):
     features_dict["entropy"] = stats.entropy(np_marray)
     features_dict["zero_crossing"] = len(np.nonzero(np.diff(np_marray > 0))[0])
     features_dict["mean_crossing"] = len(np.nonzero(np.diff((np_marray - np.mean(np_marray)) > 0))[0])
-
     # Pairwise Correlation
 
     return features_dict
-
 
 def interpolate_list(xlist, ylist, xnew):
     from scipy import interpolate
@@ -60,25 +60,8 @@ def interpolate_list(xlist, ylist, xnew):
     return [xnew, ynew.tolist()]
 
 
-def filter_extr_plain_draw(distances, values, threshold=0.8):
-    extr = argrelextrema(np.array(distances), np.less)
-    extrvals = extr[0]
-
-    def filter_extr_plain(extrspos, values, threshold=threshold):
-        filtered = [[values[extrspos[0]], None]]
-        for i in range(len(extrvals) - 1):
-            last = filtered[-1][0]
-            if (values[extrspos[i + 1]] - last >= threshold):
-                filtered[-1][-1] = values[extrvals[i + 1]]
-                filtered.append([values[extrvals[i + 1]], None])
-        from functools import reduce
-        return list(reduce(lambda res, x: res + x, filtered, []))
-
-    return filter_extr_plain(extrvals, values)
-
-
 def draw_signals(filteredt, datat, datas, label=""):
-    minmaxdist = [[-50, 100]] * len(filteredt)
+    minmaxdist = [[np.amin(datas) - 1, np.amax(datas) + 1]] * len(filteredt)
     
     from functools import reduce
     newdatasarr = list(reduce(lambda res, x: res + [datat, x], datas, []))
@@ -94,21 +77,24 @@ def draw_signals(filteredt, datat, datas, label=""):
 def draw_patterns(time, sig, name=""):
     labeled = []
     for pat in sig:
-        plt.figure("pattern_" + name)
+        adjusted_fig("pattern_" + name)
         labeled += plt.plot(time, pat, label="blah" + str(len(labeled) + 1))
     plt.grid()
     plt.legend(handles=labeled)
 
 
-def filter_by_chars(signal, pattern, mindistances):
+def filter_by_chars(signal, in_pattern, mindistances, transform=None):
+    if transform is None:
+        transform = lambda x: x
     filtered_dist = []
 
+    pattern = transform(in_pattern)
     pattern_features = [get_chars(p) for p in pattern]
 
     for dist in mindistances:
         signal_len = int(dist[1])
         signal_start = int(dist[2])
-        signal_candidate = signal[:, signal_start:signal_start + signal_len]
+        signal_candidate = transform(signal[:, signal_start:signal_start + signal_len])
 
         sig_chars = [get_chars(s) for s in signal_candidate]
 
@@ -122,9 +108,10 @@ def filter_by_chars(signal, pattern, mindistances):
             filtered_dist.append(dist)
     return filtered_dist
 
-
 def remove_cross(signal, pattern, ranges):
     ranges_local = ranges
+    if len(ranges_local) <= 1:
+        return ranges_local
     crossed = True
     filtered_indexes = []
 
@@ -208,7 +195,16 @@ class MotionFilter():
     def set_signal_transform_cb(self, cb):
         if cb is None:
             return
-        self.signal_transform_cb = cb
+        if isinstance(cb, list):
+            def __transform_chain(signal):
+                s = signal
+                for t in cb:
+                    s = t(s)
+                return s
+
+            self.signal_transform_cb = __transform_chain
+        else:
+            self.signal_transform_cb = cb
 
     def set_calc_distance_cb(self, cb):
         if cb is None:
@@ -287,11 +283,12 @@ class MotionFilter():
     def do_filter(self):
         self.distances = self.calc_distances(self.signal_s, self.pattern_s)
         distances_vals = np.array([x[0] for x in self.distances])
-        dtw_mins = argrelextrema(distances_vals, np.less, order=3)[0]
+        dtw_mins = argrelextrema(distances_vals, np.less)[0]
         # dtw_mins = self.__get_min_in_range(dtw_mins, distances_vals, min_range=5)
 
         self.features_dict = dict()
         result = self.distances[np.r_[dtw_mins]]
+
         for i, filter in enumerate(self.filters_chain_list):
             result = filter(self.signal_s, self.pattern_s, result)
             self.features_dict["filter_" + filter.__name__ + "_" + str(i)] = self.calc_features(result)
@@ -337,7 +334,6 @@ def draw_features(features_map, label=""):
 
 kkk = 0
 
-
 def get_rose_diagram(signal):
     from scipy.spatial.distance import cosine
     dimension = len(signal)
@@ -362,8 +358,8 @@ def get_rose_diagram(signal):
 
     [push_sample(s) for s in norm_signal.T[:]]
 
-    # [(-1, -1), (-1, 0), (-1, 1), (0, -1), (0, 1), (1, -1), (1, 0), (1, 1)]
-    weights = [10.0, 10.0, 10.0, 1.5, 1, 1.5, 1.3, 1]
+    #        [(-1, -1), (-1, 0), (-1, 1), (0, -1), (0, 1), (1, -1), (1, 0), (1, 1)]
+    weights = [10.0,     10.0,     10.0,   1,       1,      1,       1,      1]
     diagram = []
     sorted_keys = sorted(diagram_map.keys())
     for i, k in enumerate(sorted_keys):
@@ -378,8 +374,8 @@ def get_rose_diagram(signal):
         diagram.append([(x, y), v])
 
     global kkk
-    kkk = kkk + 1
-    # if kkk != 1:
+    #kkk = kkk + 1
+    #if kkk != 1:
     #    draw_rose_vectors([k for k,v in diagram], num=str(kkk))
     return diagram
 
@@ -392,6 +388,14 @@ def signal_modul(signal):
 def get_rose_lengths(signal):
     lengths = np.array([v for k, v in get_rose_diagram(signal)])
     return np.ndarray(shape=(1, len(lengths)), buffer=lengths)
+
+def get_rose_lengths_from_diagram(diagram):
+    lengths = np.array([v for k, v in diagram])
+    return np.ndarray(shape=(1, len(lengths)), buffer=lengths)
+
+def get_rose_coords(diagram):
+    return [k for k,v in diagram]
+
 
 
 def draw_rose_vectors(vectors, num=""):
@@ -416,24 +420,87 @@ def tresholded_euclidean(u, v):
         e = 100.0
     return e
 
-def draw_processed_subplot(data, time, signal):
-    plt.figure("ranges")
-    subplot_index = 0
-    for k, (filteredt, distances, features) in data.items():
-        plt.subplot(len(data) * 100 + 11 + subplot_index)
-        subplot_index += 1
-        draw_signals(filteredt, time, signal[np.r_[k]])
+def adjusted_fig(title):
+    return plt.figure(title).subplots_adjust(left=0.08, right=0.95, top=0.95, bottom=0, wspace=0, hspace=0)
 
-    plt.figure("distances")
+def draw_processed_subplot(data, time, signal, name=""):
+    adjusted_fig("ranges" + name)
     subplot_index = 0
-    for k, (filteredt, distances, features) in data.items():
+    for k, (filteredt, distances, features) in data:
         plt.subplot(len(data) * 100 + 11 + subplot_index)
+        plt.title(str(k), x=0.1, y=0.5, fontsize=10)
+        subplot_index += 1
+        if signal.shape[0] < max(k):
+            draw_signals(filteredt, time, signal)
+        else:
+            draw_signals(filteredt, time, signal[np.r_[k]])
+
+    adjusted_fig("distances" + name)
+    subplot_index = 0
+    for k, (filteredt, distances, features) in data:
+        plt.subplot(len(data) * 100 + 11 + subplot_index)
+        plt.title(str(k), x=0.1, y=0.5, fontsize=10)
         subplot_index += 1
         plt.plot(range(len(distances)), [x[0] for x in distances])
         plt.grid()
 
-    #[draw_features(features) for k, (filteredt, distances, features) in data.items()]
+    #[draw_features(features) for k, (filteredt, distances, features) in data]
 
+def normalize_window(signal):
+    return np.array([s / np.amax(np.abs(s)) for s in signal])
+
+def filter_by_chars_normaized(p,s,m):
+    return filter_by_chars(p,s,m, transform=normalize_window)
+
+def filter_by_chars_moduled(p,s,m):
+    return filter_by_chars(p,s,m, transform=signal_modul)
+
+def get_distances(pattern_in, signal_in):
+    norm_pattern = normalize_window(pattern_in)
+    norm_signal = normalize_window(signal_in)
+    distances_dict = {}
+    distances_dict["dtw_coords"] = [fastdtw(norm_pattern[i], norm_signal[i])[0] for i, _ in enumerate (norm_pattern)]
+
+    norm_module_pattern = normalize_window(signal_modul(pattern_in))
+    norm_module_signal = normalize_window(signal_modul(signal_in))
+    distances_dict["dtw_modul"] = fastdtw(norm_module_pattern, norm_module_signal)[0]
+    if signal_in.shape[0] >= 2:
+        pattern_diagram = get_rose_diagram(pattern_in[:2])
+        signal_diagram = get_rose_diagram(signal_in[:2])
+        distances_dict["rose"] = euclidean(get_rose_lengths_from_diagram(pattern_diagram), get_rose_lengths_from_diagram(signal_diagram))
+        #draw_rose_vectors(get_rose_coords(signal_diagram), num=str(signal_in[:2]))
+    return distances_dict
+
+def filter_by_distances(signal, pattern, mindistances):
+    thresholds = dict()
+    thresholds["dtw_modul"] = 3
+    thresholds["rose"] = 6
+    filtered_dist = []
+    for dist in mindistances:
+        signal_len = int(dist[1])
+        signal_start = int(dist[2])
+        dist_value = dist[0]
+        signal_candidate = signal[:, signal_start:signal_start + signal_len]
+
+        sig_chars = get_distances(pattern, signal_candidate)
+        if all([sig_chars[k] <= t for k,t in thresholds.items()]):
+            filtered_dist.append(dist)
+    return filtered_dist
+
+def filter_by_dist_treshold(signal, pattern, mindistances):
+    dist_val_threshold = 6.0
+    filtered_dist = []
+    for dist in mindistances:
+        if dist[0] <= dist_val_threshold:
+            filtered_dist.append(dist)
+    return filtered_dist
+
+def scale(s):
+    from sklearn import preprocessing
+    return preprocessing.scale(s.T).T
+
+def ravel_distance(s, p):
+    return fastdtw(s.ravel(), p.ravel())[0]
 
 if __name__ == "__main__":
     def find_pattern(motion_filter):
@@ -444,29 +511,61 @@ if __name__ == "__main__":
         return filteredt, distances, features
 
 
-    # pattern_stas_t, pattern_stas = get_pattern("pattern_stas.csv")
-    # pattern_stas = pattern_stas[np.r_[significant_coords]]
+    pattern_stas_t, pattern_stas = get_pattern("pattern_stas.csv")
 
     pattern_t, pattern = get_pattern("pattern.csv")
+
     data_t, data_s = read_and_prepare([  # 'max_fh_slice.csv',
         'merged.csv',
-        # 'iracsv/merged.csv',
-        # 'stasdrivecsv/merged.csv',
-        # 'stasloopcsv/merged.csv'
+        'iracsv/merged.csv',
+        'stasdrivecsv/merged.csv',
+       'stasloopcsv/merged.csv'
     ])
 
+    l = 0#805#1920
+    h = len(data_t)#l+26 #len(data_t)
 
-    def append_result(proc_data, sign_coords, transform_cb=None):
+    data_t = data_t[l:h]
+    data_s = data_s[:, l:h]
+    def append_result(proc_data, sign_coords, transform_cb=None, measure=None, window_deviation=0.0, filters=None):
         for significant_coords in sign_coords:
-            motion_filter = MotionFilter((pattern_t, pattern), (data_t, data_s), significant_coords)
+            motion_filter = MotionFilter((pattern_t, pattern), (data_t, data_s), significant_coords, window_deviation=window_deviation)
             motion_filter.set_signal_transform_cb(transform_cb)
-            proc_data[tuple(significant_coords)] = find_pattern(motion_filter)
+            motion_filter.set_calc_distance_cb(measure)
+            motion_filter.set_filters_chain(filters)
+            proc_data.append((significant_coords, find_pattern(motion_filter)))
 
 
-    processed_data = dict()
-    #append_result(processed_data, [[0], [1], [2], [3], [4], [5]])
-    append_result(processed_data, [[0, 1, 2], [3, 4, 5]])
-    #append_result(processed_data, [[0, 1]], get_rose_lengths)
+    processed_data = list()
+    #append_result(processed_data, [[0]])
+
+    append_result(processed_data, [[0]], transform_cb=scale)
+    #append_result(processed_data, [[0,1,2]], transform_cb=[signal_modul, scale], filters=[filter_by_distances, filter_by_dist_treshold])
+
+    append_result(processed_data, [[0]], transform_cb=scale,
+                  filters=[filter_by_dist_treshold])
+    append_result(processed_data, [[1]], transform_cb=[signal_modul, scale],
+                  filters=[filter_by_dist_treshold])
+    append_result(processed_data, [[2]], transform_cb=[signal_modul, scale],
+                  filters=[filter_by_dist_treshold])
+    append_result(processed_data, [[3]], transform_cb=[signal_modul, scale],
+                  filters=[filter_by_dist_treshold])
+    append_result(processed_data, [[4]], transform_cb=[signal_modul, scale],
+                  filters=[filter_by_dist_treshold])
+    append_result(processed_data, [[5]], transform_cb=[signal_modul, scale],
+                  filters=[filter_by_dist_treshold])
+
+    append_result(processed_data, [[0,1,2,3,4,5]], transform_cb=[scale], measure=ravel_distance)
+
+
+    # append_result(processed_data, [[0]], window_deviation=0.5)
+    # append_result(processed_data, [[0]], transform_cb=normalize_window, filters=[filter_by_chars_normaized, remove_cross])
+    # append_result(processed_data, [[0]], transform_cb=normalize_window, window_deviation=0.5, filters=[filter_by_chars_normaized, remove_cross])
+    # append_result(processed_data, [[0, 1, 2]], transform_cb=signal_modul, filters=[filter_by_chars_moduled])
+    #normalized_module = lambda x: signal_modul(normalize_window(x))
+    #append_result(processed_data, [[0, 1, 2]], transform_cb=normalized_module, filters=[])
+    #append_result(processed_data, [[0, 1]], transform_cb=get_rose_lengths, measure=euclidean)
+
 
     # diagram = get_rose_diagram(motion_filter.get_pattern()[1])
     # rose_pattern_vectors = [k for k,v in diagram]
@@ -474,6 +573,10 @@ if __name__ == "__main__":
     # motion_filter.set_signal_transform_cb(signal_modul)
     # motion_filter.set_calc_distance_cb(tresholded_euclidean)
 
-    draw_patterns(pattern_t, pattern, "max")
-    draw_processed_subplot(processed_data, data_t, data_s)
+    draw_patterns(pattern_t, scale(pattern), "max")
+    draw_patterns(pattern_stas_t, scale(pattern_stas), "stas")
+    draw_processed_subplot(processed_data, data_t, scale(data_s))
+
+    #draw_patterns(pattern_t, signal_modul(pattern), "modulo")
+    #draw_processed_subplot(processed_data, data_t, signal_modul(data_s), "modul")
     plt.show()
