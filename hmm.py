@@ -5,16 +5,6 @@ from scipy.signal import argrelextrema
 from scipy.spatial.distance import euclidean
 from fastdtw import fastdtw
 
-
-# fh_loop_character_filter_map_hardcoded = {
-#        0:[3.5, 1.5], #x
-#        1:[3.5, 1.3], #y
-#        4:[1.5, 2], #y
-#        5:[9, 1.2] #z
-#    }
-from sympy import transpose
-
-
 def read_and_prepare(filenames):
     data_arrays = []
     maxtime = 0
